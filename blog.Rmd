@@ -1,0 +1,218 @@
+---
+title: "Brand Clothing Sizing Blog Draft"
+author: "Mia Rivera"
+date: "3/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) 
+library(measurements)
+library(foreign)
+library(ggplot2)
+
+```
+
+## Brand Sizing VS. Population Measurements
+
+The fashion industry has embraced data science in order to increase business, for example through predicting customer style preferences or by predicting upcoming trends.  While businesses have been experiencing these advantages, the average customer hasn’t been able to improve their purchasing decisions based on large data analysis.  Consumers increasingly do their shopping online, but online clothing shopping still remains difficult due to uncertainty in fit and sizing across brands and items.
+
+Typically, brands provide sizing charts on their retail website for customers to reference in order to assist with their online purchasing decisions.  Depending on the clothing item, different body measurements are used to determine a person's clothing size.  When purchasing tops, most brands will use a chest(or bust) measurement along with one or two other body measurements depending on whether the sizing chart is for men or women.  Most women's sizing charts for tops use the bust and waist measurements, and occasionally an arm measurement for determining size.  In men's sizing charts for tops, the chest, neck, and arm measurements are the standard for determining size.  In this article, we will determine which brands have sizing most representative of the U.S. population.
+
+In order to have a standard to compare sizing against, body measurement data was taken from the 2012 US Army Anthropometric Survey (ANSUR-II) and the 2017-2018 CDC National Health and Nutrition Examination Survey (NHANES).
+
+```{r anthro, echo=FALSE, warning=FALSE}
+# ANSUR-II DATA
+ansur_female = read.csv("ANSUR II FEMALE Public.csv")
+ansur_male = read.csv("ANSUR II MALE Public.csv")
+
+# extract only desired cols
+ansur_vars <- c("waistcircumference", "chestcircumference", "buttockcircumference")
+ansur_female <- ansur_female[ansur_vars]
+ansur_male <- ansur_male[ansur_vars]
+
+# convert millimeters to inches
+ansur_female$waist_inches = conv_unit(ansur_female$waistcircumference, "mm", "inch") 
+ansur_female$chest_inches = conv_unit(ansur_female$chestcircumference, "mm", "inch") 
+ansur_female$hips_inches = conv_unit(ansur_female$buttockcircumference, "mm", "inch") 
+
+ansur_male$waist_inches = conv_unit(ansur_male$waistcircumference, "mm", "inch") 
+ansur_male$chest_inches = conv_unit(ansur_male$chestcircumference, "mm", "inch") 
+ansur_male$hips_inches = conv_unit(ansur_male$buttockcircumference, "mm", "inch") 
+
+ansur_male$sex = "male"
+ansur_female$sex = "female"
+ansur = rbind(ansur_female, ansur_male)
+ansur$sex <- as.factor(ansur$sex)
+
+ansur$index = as.numeric(row.names(ansur))
+ansur_male$index = as.numeric(row.names(ansur_male))
+ansur_female$index = as.numeric(row.names(ansur_female))
+
+af_mean = mean(ansur_female$waist_inches, na.rm = TRUE)
+am_mean = mean(ansur_male$waist_inches, na.rm = TRUE)
+
+
+# NHANES2018 DATA
+nhanes = read.xport("BMX_J.XPT")
+nhanes_demo = read.xport("DEMO_J.XPT")
+
+# extract only desired cols
+nhanes_vars <- c("SEQN", "BMXHIP", "BMXWAIST")
+demo_vars <- c("SEQN", "RIAGENDR", "RIDAGEYR")
+nhanes <- nhanes[nhanes_vars]
+nhanes_demo <- nhanes_demo[demo_vars]
+
+nhanes = inner_join(nhanes_demo, nhanes, by = "SEQN")
+nhanes = subset(nhanes, RIDAGEYR >= 18)
+
+nhanes$RIAGENDR[nhanes$RIAGENDR==1] <- "male"
+nhanes$RIAGENDR[nhanes$RIAGENDR==2] <- "female"
+nhanes$RIAGENDR <- as.factor(nhanes$RIAGENDR)
+
+nhanes$index = as.numeric(row.names(nhanes))
+
+# convert centimeters to inches
+nhanes$waist_inches = conv_unit(nhanes$BMXWAIST, "cm", "inch")
+nhanes$hip_inches = conv_unit(nhanes$BMXHIP, "cm", "inch") 
+
+nhanes_female = nhanes[nhanes$RIAGENDR=="female",]
+nhanes_male = nhanes[nhanes$RIAGENDR=="male",]
+
+nf_mean = mean(nhanes_female$waist_inches, na.rm = TRUE)
+nm_mean = mean(nhanes_male$waist_inches, na.rm = TRUE)
+```
+
+Unfortunately, the NHANES dataset does not include chest measurements, but we can still compare the measurements between the demographics of the two datasets using waist measurements.
+
+```{r anthro plots, echo=FALSE, warning=FALSE}
+groupingA <- c("male", "female")
+groupColors <- c("#0000ff", "#ff0000")
+
+ggplot(ansur, aes(x = waist_inches, fill = sex)) +
+    labs(title = "ANSUR-II Waist Measurements") +
+    geom_density(alpha = 0.2) +
+    scale_fill_manual(values=groupColors, limits=groupingA) +
+    xlim(20, 60)
+
+ggplot(nhanes, aes(x = waist_inches, fill = RIAGENDR), main="NHANES Waist Measurement Density") +
+    labs(title = "NHANES Waist Measurements", fill="sex") +
+    geom_density(alpha = 0.2) +
+    scale_fill_manual(values=groupColors, limits=groupingA) +
+    xlim(20, 60)
+```
+
+As we might have guessed, the data shows that the individuals in the US Army for the ANSUR-II data are leaner than the general populace measured for NHANES.  We can corroborate this by performing a t-test on the mean of the waist measurements between the two data sets.
+
+```{r means, echo=FALSE, warning=FALSE}
+t.test(nhanes_female$waist_inches, ansur_female$waist_inches, paired = FALSE)
+t.test(nhanes_male$waist_inches, ansur_male$waist_inches, paired = FALSE)
+```
+
+The results of the t-tests show that there is a statistically significant difference in means for both men's and women's measurements, with t=30.048 and t=21.345 with p-value<2.2e-16 respectively.  From the t-test we also know that there is a larger difference in means in the female measurements than the males.  
+
+```{r brands, echo=FALSE, warning=FALSE}
+# BRAND SIZING
+nike = read.csv("nike.csv", fileEncoding="UTF-8-BOM")
+american_eagle = read.csv("am_eagle.csv", fileEncoding="UTF-8-BOM")
+banana_republic = read.csv("banana_republic.csv", fileEncoding="UTF-8-BOM")
+gap = read.csv("gap.csv", fileEncoding="UTF-8-BOM")
+mk = read.csv("mk.csv", fileEncoding="UTF-8-BOM")
+old_navy = read.csv("oldnavy.csv", fileEncoding="UTF-8-BOM")
+polo_ralphLauren = read.csv("poloRalphLauren.csv", fileEncoding="UTF-8-BOM")
+tommy = read.csv("tommy.csv", fileEncoding="UTF-8-BOM")
+under_armour = read.csv("under_armour.csv", fileEncoding="UTF-8-BOM")
+urban = read.csv("urban.csv", fileEncoding="UTF-8-BOM")
+patagonia = read.csv("patagonia.csv", fileEncoding="UTF-8-BOM")
+lands_end = read.csv("lands_end.csv", fileEncoding="UTF-8-BOM")
+express = read.csv("express.csv", fileEncoding="UTF-8-BOM")
+brand_names = read.csv("brands.csv", fileEncoding = "UTF-8-BOM")
+
+all_brands = do.call("rbind", list(express, lands_end, patagonia, urban, nike, american_eagle, banana_republic, gap, mk, old_navy, polo_ralphLauren, tommy, under_armour))
+all_brands_female = all_brands[all_brands$sex == "F",]
+all_brands_male = all_brands[all_brands$sex == "M",]
+
+all_brands_female$size <- ordered(all_brands_female$size, levels = c("3XS", "2XS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL"))
+all_brands_male$size <- ordered(all_brands_male$size, levels = c("3XS", "2XS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL"))
+
+all_brands_female$brand <- as.factor(all_brands_female$brand)
+all_brands_male$brand <- as.factor(all_brands_male$brand)
+```
+
+```{r brand plots, echo=FALSE, warning=FALSE}
+ggplot(all_brands, aes(x = waist_high, fill = sex)) +
+    geom_density(alpha = 0.2) +
+    xlim(20, 70)
+
+ggplot(all_brands, aes(x = chest_high, fill = sex)) +
+    geom_density(alpha = 0.2) +
+    xlim(25, 70)
+```
+
+From doing a density plot on the upper value of the waist measurements used by the 13 clothing brands sampled, we can see that the distributions do not closely reflect the density plots of the population measurements, although it does come closer to the density plot of ANSUR-II.
+
+```{r size plots, echo=FALSE, warning=FALSE}
+ggplot(all_brands_female, aes(x = chest_high, fill = size, color = size)) +
+    labs(title = "Chest Measurement Densities by Women's Sizing") +
+    geom_density(alpha = 0.2)
+
+ggplot(all_brands_male, aes(x = chest_high, fill = size, color = size)) +
+    labs(title = "Chest Measurement Densities by Men's Sizing") +
+    geom_density(alpha = 0.2) +
+    xlim(30, 65)
+```
+
+These density plots shows us the distribution of measurements for each clothing size across all brands.  Sizes with wider and flatter curves indicate that there is less consensus on a standard measurement range for the particular size.  We can see that for women's sizing someone with around a 33.5 inch chest measurement is a highly standard XS across brands.  Size large and XL for men's sizing also have highly consistent measurements across all 13 brands.
+
+If we overlay the density measurement for each brand over the population measurement, we can see which brand's sizings/measurements density best correlate to population measurement density.
+
+```{r brand plots female, echo=FALSE, warning=FALSE}
+ggplot() + 
+    labs(title = "ANSUR Female Density vs Female Sizing Density by Brand") +
+    scale_color_hue(labels = brand_names$brand) +
+    geom_density(data=ansur_female, aes(x = chest_inches), fill="white") +
+    geom_density(data=all_brands_female, aes(x = chest_high, color=brand))
+
+ggplot() + 
+    labs(title = "NHANES Female Density vs Female Sizing Density by Brand") +
+    scale_color_hue(labels = brand_names$brand) +
+    geom_density(data=nhanes_female, aes(x = waist_inches), fill="white") +
+    geom_density(data=all_brands_female, aes(x = waist_high, color=brand))
+```
+For females, we can see that when comparing the brands to the ANSUR female measurements, the densities mostly overlap over the same areas.  Most brands seem to lean towards a smaller mean density compared to the ANSUR female demographic, but it appears that Ralph Lauren followed by Banana Republic and Urban Outfitters are most closely matching the ANSUR demographic.  However, since all of the brands contain the measurement range of the ANSUR female demographic, there would be little impact in knowing which of the brands best fit the demographic measurement density.  Looking at the brands compared to the NHANES demographic (using waist measurements since NHANES doesn't record chest measurements), we see that for what we may consider a more "typical" American demographic we have much less correlation between the brands and demographic densities.   Since the measurements from the NHANES data set tend to be larger, there is much less overlap between the brand densities and the demographic density.  Tommy Hilfiger, Nike, and J.Crew would be able to have sizings to fit the majority of the NHANES female population.
+
+``` {r brand plots male, echo=FALSE, warning=FALSE}
+ggplot() + 
+    labs(title = "ANSUR Male Density vs Male Sizing Density by Brand") +
+    scale_color_hue(labels = brand_names$brand) +
+    geom_density(data=ansur_male, aes(x = chest_inches), fill="white") +
+    geom_density(data=all_brands_male, aes(x = chest_high, color=brand))
+
+ggplot() +
+    labs(title = "NHANES Male Density vs Male Sizing Density by Brand") +
+    scale_color_hue(labels = brand_names$brand) +
+    geom_density(data=nhanes_male, aes(x = waist_inches), fill="white") +
+    geom_density(data=all_brands_male, aes(x = waist_high, color=brand))
+```
+We can apply the same methods from above to find which brands best match the men in our data sets.  When finding the best density match for the ANSUR men, Tommy Hilfiger is the closest and is followed by Urban Outfitters.  Tommy Hilfiger is still a good brand for the NHANES men demographic, but Urban Outfitters is not as well matched as it was with the ANSUR population.
+
+# References
+http://mreed.umtri.umich.edu/mreed/downloads.html#ansur2
+https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017
+https://www.underarmour.com/en-us/size-charts
+https://www.ae.com/us/en/content/help/men-size-chart
+https://www.ae.com/us/en/content/help/women-size-chart
+https://usa.tommy.com/en/customerservice/size-guide
+https://bananarepublic.gap.com/customerService/info.do?cid=80743&cs=size_charts
+https://www.gap.com/browse/sizeChart.do?cid=2082
+https://www.gap.com/browse/sizeChart.do?cid=2082
+https://oldnavy.gap.com/browse/sizeChart.do?cid=3102
+https://oldnavy.gap.com/browse/sizeChart.do?cid=3102
+https://www.ralphlauren.com/size-guide/size-guide.html
+https://www.nike.com/us/en_us/sfg/mens-tops-sizing-chart
+https://www.nike.com/us/en_us/sfg/womens-tops-sizing-chart
+https://www.landsend.com/customer-service/size-charts/
+https://www.patagonia.com/
+https://www.urbanoutfitters.com/help/size-charts
+https://www.jcrew.com/r/size-charts
